@@ -44,7 +44,7 @@ struct device_info_t {
 - (IOReturn)connectDevice: (NSString *) address onChannel: (int) channel withPipe: (pipe_t *)pipe;
 - (IOReturn)writeSync:(void *)data length:(UInt16)length toDevice: (NSString *)address;
 - (void) inquireWithPipe: (pipe_t *)pipe;
-- (int) getRFCOMMChannelID: (NSString *) address;
+- (int) getRFCOMMChannelID: (NSString *)address withRFCOMM: (NSString *)rfcomm;
 
 - (void)rfcommChannelData:(IOBluetoothRFCOMMChannel*)rfcommChannel data:(void *)dataPointer length:(size_t)dataLength;
 - (void)rfcommChannelClosed:(IOBluetoothRFCOMMChannel*)rfcommChannel;

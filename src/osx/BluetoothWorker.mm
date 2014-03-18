@@ -1,6 +1,7 @@
 #import "BluetoothWorker.h"
 #import "BluetoothDeviceResources.h"
 #import <Foundation/NSObject.h>
+#import <Foundation/NSUUID.h>
 #import <IOBluetooth/objc/IOBluetoothDevice.h>
 #import <IOBluetooth/objc/IOBluetoothRFCOMMChannel.h>
 #import <IOBluetooth/objc/IOBluetoothSDPUUID.h>
@@ -222,21 +223,30 @@ using namespace v8;
 }
 
 /** Get the RFCOMM channel for a given device */
-- (int) getRFCOMMChannelID: (NSString *) address 
+- (int) getRFCOMMChannelID: (NSString *)address withRFCOMM :(NSString *)rfcomm
 {
 	[sdpLock lock];
 	// call the task on the worker thread and wait for the result
-	[self performSelector:@selector(getRFCOMMChannelIDTask:) onThread:worker withObject:address waitUntilDone:true];
+	NSArray *params;
+	params = [NSArray arrayWithObjects:address, rfcomm, nil];
+	[self performSelector:@selector(getRFCOMMChannelIDTask:) onThread:worker withObject:params waitUntilDone:true];
 	int returnValue = lastChannelID;
 	[sdpLock unlock];
 	return returnValue;
 }
 
 /** Task to get the RFCOMM channel */
-- (void) getRFCOMMChannelIDTask: (NSString *) address
+- (void) getRFCOMMChannelIDTask: (NSArray *)params
 {
-    IOBluetoothDevice *device = [IOBluetoothDevice deviceWithAddressString:address];
+    IOBluetoothDevice *device = [IOBluetoothDevice deviceWithAddressString:[params objectAtIndex:0]];
     IOBluetoothSDPUUID *uuid = [[IOBluetoothSDPUUID alloc] initWithUUID16:RFCOMM_UUID];
+	if ([[params objectAtIndex:1] length] > 0) {
+		NSUUID *_uuid = [[NSUUID alloc] initWithUUIDString:[params objectAtIndex:1]];
+		uuid_t __uuid;
+		[_uuid getUUIDBytes:__uuid];
+		NSData *data = [NSData dataWithBytes:__uuid length:16];
+		uuid = [uuid initWithData:data];
+	}
     NSArray *uuids = [NSArray arrayWithObject:uuid];
 
     // always perform a new SDP query

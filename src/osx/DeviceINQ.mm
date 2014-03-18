@@ -44,8 +44,9 @@ void DeviceINQ::EIO_SdpSearch(uv_work_t *req) {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 
     NSString *address = [NSString stringWithCString:baton->address encoding:NSASCIIStringEncoding];
+    NSString *rfcomm = [NSString stringWithCString:baton->rfcomm encoding:NSASCIIStringEncoding];
     BluetoothWorker *worker = [BluetoothWorker getInstance];
-    baton->channelID = [worker getRFCOMMChannelID: address];
+    baton->channelID = [worker getRFCOMMChannelID: address withRFCOMM: rfcomm];
 
     [pool release];
 }
@@ -157,7 +158,7 @@ Handle<Value> DeviceINQ::SdpSearch(const Arguments& args) {
     HandleScope scope;
     
     const char *usage = "usage: sdpSearchForRFCOMM(address, callback)";
-    if (args.Length() != 2) {
+    if (args.Length() < 2) {
         return scope.Close(ThrowException(Exception::Error(String::New(usage))));
     }
     
@@ -165,15 +166,26 @@ Handle<Value> DeviceINQ::SdpSearch(const Arguments& args) {
         return scope.Close(ThrowException(Exception::TypeError(String::New("First argument should be a string value"))));
     }
     String::Utf8Value address(args[0]);
+    sdp_baton_t *baton = new sdp_baton_t();
+    Local<Function> cb;
 
-    if(!args[1]->IsFunction()) {
-        return scope.Close(ThrowException(Exception::TypeError(String::New("Second argument must be a function"))));
-    }
-    Local<Function> cb = Local<Function>::Cast(args[1]);
-            
+    if(args[1]->IsFunction()) {
+		cb = Local<Function>::Cast(args[1]);
+		strcpy(baton->rfcomm, "");
+    } else {
+		if (args[1]->IsString() && args[2]->IsFunction()) {
+			// Correct data
+			String::Utf8Value rfcomm(args[1]);
+			strcpy(baton->rfcomm, *rfcomm);
+			cb = Local<Function>::Cast(args[2]);
+		} else {
+			// Wrong args
+			delete baton;
+			return scope.Close(ThrowException(Exception::TypeError(String::New("Second argument must be a string, third must be a function"))));
+		}
+	}
     DeviceINQ* inquire = ObjectWrap::Unwrap<DeviceINQ>(args.This());
     
-    sdp_baton_t *baton = new sdp_baton_t();
     baton->inquire = inquire;
     baton->cb = Persistent<Function>::New(cb);
     strcpy(baton->address, *address);
