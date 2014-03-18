@@ -43,6 +43,60 @@ using namespace std;
 using namespace node;
 using namespace v8;
 
+bool is_uuid128(const char *string) {
+	return (strlen(string) == 36 &&
+			string[8] == '-' &&
+			string[13] == '-' &&
+			string[18] == '-' &&
+			string[23] == '-');
+}
+
+/*
+
+static int string2uuid16(uuid_t *uuid, const char *string) {
+	int length = strlen(string);
+	char *endptr = NULL;
+	uint16_t u16;
+	if (length != 4 && length != 6)
+		return -EINVAL;
+	u16 = strtol(string, &endptr, 16);
+	if (endptr && *endptr == '\0') {
+		sdp_uuid16_create(uuid, u16);
+		return 0;
+	}
+	return -EINVAL;
+}
+*/
+int bt_string2uuid(uuid_t *uuid, const char *string)
+{
+	uint32_t data0, data4;
+	uint16_t data1, data2, data3, data5;
+
+	if (is_uuid128(string) &&
+			sscanf(string, "%08x-%04hx-%04hx-%04hx-%08x%04hx",
+				&data0, &data1, &data2, &data3, &data4, &data5) == 6) {
+		uint8_t val[16];
+		data0 = htonl(data0);
+		data1 = htons(data1);
+		data2 = htons(data2);
+		data3 = htons(data3);
+		data4 = htonl(data4);
+		data5 = htons(data5);
+
+		memcpy(&val[0], &data0, 4);
+		memcpy(&val[4], &data1, 2);
+		memcpy(&val[6], &data2, 2);
+		memcpy(&val[8], &data3, 2);
+		memcpy(&val[10], &data4, 4);
+		memcpy(&val[14], &data5, 2);
+
+		sdp_uuid128_create(uuid, val);
+
+		return 0;
+	}
+	return 1; // Failed
+}
+
 void DeviceINQ::EIO_SdpSearch(uv_work_t *req) {
     sdp_baton_t *baton = static_cast<sdp_baton_t *>(req->data);
 
@@ -67,6 +121,10 @@ void DeviceINQ::EIO_SdpSearch(uv_work_t *req) {
     
     // specify the UUID of the application we're searching for
     sdp_uuid16_create(&svc_uuid, SERIAL_PORT_PROFILE_ID);
+	if (strlen(baton->rfcomm)>0) {
+		// Have custom RFCOMM channel name
+		bt_string2uuid(&svc_uuid, baton->rfcomm);
+	}
     search_list = sdp_list_append(NULL, &svc_uuid);
 
     // specify that we want a list of all the matching applications' attributes
@@ -245,7 +303,7 @@ Handle<Value> DeviceINQ::SdpSearch(const Arguments& args) {
     HandleScope scope;
     
     const char *usage = "usage: findSerialPortChannel(address, callback)";
-    if (args.Length() != 2) {
+    if (args.Length() < 2) {
         return scope.Close(ThrowException(Exception::Error(String::New(usage))));
     }
     
@@ -254,14 +312,26 @@ Handle<Value> DeviceINQ::SdpSearch(const Arguments& args) {
     }
     String::Utf8Value address(args[0]);
 
-    if(!args[1]->IsFunction()) {
-        return scope.Close(ThrowException(Exception::TypeError(String::New("Second argument must be a function"))));
-    }
-    Local<Function> cb = Local<Function>::Cast(args[1]);
+    Local<Function> cb;
+    sdp_baton_t *baton = new sdp_baton_t();
+    if(args[1]->IsFunction()) {
+		cb = Local<Function>::Cast(args[1]);
+		strcpy(baton->rfcomm, "");
+    } else {
+		if (args[1]->IsString() && args[2]->IsFunction()) {
+			// Correct data
+			String::Utf8Value rfcomm(args[1]);
+			strcpy(baton->rfcomm, *rfcomm);
+			cb = Local<Function>::Cast(args[2]);
+		} else {
+			// Wrong args
+			delete baton;
+			return scope.Close(ThrowException(Exception::TypeError(String::New("Second argument must be a string, third must be a function"))));
+		}
+	}
     
     DeviceINQ* inquire = ObjectWrap::Unwrap<DeviceINQ>(args.This());
     
-    sdp_baton_t *baton = new sdp_baton_t();
     baton->inquire = inquire;
     baton->cb = Persistent<Function>::New(cb);
     strcpy(baton->address, *address);
@@ -270,6 +340,5 @@ Handle<Value> DeviceINQ::SdpSearch(const Arguments& args) {
     baton->inquire->Ref();
 
     uv_queue_work(uv_default_loop(), &baton->request, EIO_SdpSearch, (uv_after_work_cb)EIO_AfterSdpSearch);
-
     return Undefined();
 }

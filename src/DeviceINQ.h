@@ -40,6 +40,7 @@ class DeviceINQ : public node::ObjectWrap {
             v8::Persistent<v8::Function> cb;
             int channelID;
             char address[40];
+            char rfcomm[128];
         };
 
         DeviceINQ();
